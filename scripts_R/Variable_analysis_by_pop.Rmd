@@ -1,0 +1,179 @@
+---
+title: ""
+output: html_document
+date: "2024-11-20"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+library(scatterplot3d) 
+library(FactoMineR)
+library(factoextra)
+# # install.packages("devtools")
+# devtools::install_github("zhangyuqing/sva-devel", force = TRUE)
+library(sva)
+library(gridExtra)
+library(cowplot)
+library(data.table)
+library(tidyverse)
+library(ggpubr)
+library(FactoInvestigate)
+library(cluster)
+library(UpSetR)
+library(ComplexUpset)
+library(fuzzyjoin)
+library(RColorBrewer)
+options(digits = 4) # controls the number of significant digits to print
+rm(list=ls())
+
+```
+
+## Load samples metadata, TEs PCA output, and TE annotations
+
+```{r}
+table_name = fread("Antho_mappingTEdatabase_PCA/scripts/file_names.csv")
+load("Antho_mappingTEdatabase_PCA/results/data_pca.rda")
+table_name = filter(table_name, name %in% rownames(dt))
+load("Antho_mappingTEdatabase_PCA/results/resPCA_TE.rda")
+TE_class = fread("Antho_annotation_TEdatabase/Pastec_TE_sorter_Annotation_final_V3.csv", col.names = c("TE", "Order"))
+
+# List of TE PCA axes correlated with SNPs PCA axes
+axes_of_interest <- c("Dim.1", "Dim.2", "Dim.3", "Dim.6", "Dim.8")
+
+ind_coords <- as.data.frame(resPCA_TE$ind$coord) %>% 
+  select(all_of(axes_of_interest))# Coordonnées des individus sur chaque axe corrélé
+ind_pop_coord = ind_coords %>% mutate(Population = table_name$specie2) # Ajout populations depuis métadonnées
+ind_sp_coord = ind_coords %>% mutate(Species = table_name$specie) # Ajout espèce
+var_contrib <- as.data.frame(resPCA_TE$var$contrib) %>% 
+  select(all_of(axes_of_interest)) %>%   # Contributions des TE aux axes corrélés
+  rownames_to_column(var = "TE") %>% 
+  # mutate(TE = str_remove_all(string = TE, pattern = "\\|.*")) %>% 
+  filter(TE != "*") %>% 
+  column_to_rownames(var = "TE")
+
+```
+
+var_contrib contient les contributions des TE aux axes de l'ACP. 
+
+Pour chaque population/espèce, on va modifier les valeurs de contribution de chaque TE à chaque axe :
+les valeurs de contribution sont pondérées par la variance relative de chaque population/espèce sur l'axe considéré. 
+-> Plus la variance de la population/espèce sur l'axe est importante plus la contribution du TE à l'axe considéré pour cette population est importante.  
+
+
+```{r}
+# Calculer les contributions des TE par axe et par population ou par axe et par espèce
+liste_species = unique(dt$specie)
+liste_populations = unique(dt$specie2)
+top_pop_contrib <- list()
+top_species_contrib <- list()
+
+for (pop in liste_populations) {
+  
+  # Filtrer les individus pour une population spécifique
+  pop_coords <- ind_pop_coord %>% filter(Population == pop)
+  
+  
+  variance_total <- pop_coords %>%
+    summarise(across(everything(all_of(axes_of_interest)), var))
+  
+  # Pondération contribution TE ici : 
+  pop_var_contrib <- var_contrib %>%
+    rownames_to_column("TE") %>%
+    mutate(across(all_of(axes_of_interest), 
+                  ~ . * variance_total[[cur_column()]] / sum(variance_total), 
+                  .names = paste0("pop_",pop, "_contrib_{.col}")))
+  
+  # Selection des TE qui contribuent le plus aux axes par population
+  top_te_pop <- pop_var_contrib %>%
+    select(-c(axes_of_interest)) %>% 
+    pivot_longer(cols = starts_with(paste0("pop_",pop, "_contrib_")), 
+                 names_to = "Axis", 
+                 values_to = "Contribution") %>%
+    arrange(desc(Contribution)) %>%
+    group_by(Axis) %>%
+    slice_head(n = 200)  # Top TE par axe
+  
+  top_pop_contrib[[pop]] <- top_te_pop
+}
+
+for (sp in liste_species) {
+  
+  # Filtrer les individus pour une population spécifique
+  sp_coords <- ind_sp_coord %>% filter(Species == sp)
+  
+  
+  variance_total <- sp_coords %>%
+    summarise(across(everything(all_of(axes_of_interest)), var))
+  
+  # Pondération contribution TE ici : 
+  sp_var_contrib <- var_contrib %>%
+    rownames_to_column("TE") %>%
+    mutate(across(all_of(axes_of_interest), 
+                  ~ . * variance_total[[cur_column()]] / sum(variance_total), 
+                  .names = paste0("sp_",sp, "_contrib_{.col}")))
+  
+  # Selection des TE qui contribuent le plus aux axes par population
+  top_te_sp <- sp_var_contrib %>%
+    select(-c(axes_of_interest)) %>% 
+    pivot_longer(cols = starts_with(paste0("sp_",sp, "_contrib_")), 
+                 names_to = "Axis", 
+                 values_to = "Contribution") %>%
+    arrange(desc(Contribution)) %>%
+    group_by(Axis) %>%
+    slice_head(n = 200)  # Top TE par axe
+  
+  top_species_contrib[[sp]] <- top_te_sp
+}
+
+
+# Combiner les résultats en un seul tableau
+top_pop_contrib_df <- bind_rows(top_pop_contrib, .id = "Population") %>% select(-c(Population))
+top_species_contrib_df <- bind_rows(top_species_contrib, .id = "Species") %>% select(-c(Species))
+save(top_pop_contrib_df, file = "Antho_mappingTEdatabase_PCA/results/top_pop_contrib_df.rda")
+save(top_pop_contrib_df, file = "Antho_mappingTEdatabase_PCA/results/top_species_contrib_df.rda")
+
+load("Antho_mappingTEdatabase_PCA/results/top_pop_contrib_df.rda")
+load("Antho_mappingTEdatabase_PCA/results/top_species_contrib_df.rda")
+
+```
+
+upsetplot
+
+```{r}
+
+upset_data = top_species_contrib_df %>%
+  select(-c(Contribution)) %>% 
+  mutate(presence = 1) %>% 
+  pivot_wider(names_from = "Axis", values_from = "presence", values_fill = 0) %>% 
+  column_to_rownames(var = "TE")
+  
+# Visualiser avec UpSetR
+UpSetR::upset(upset_data, nsets = 70, mb.ratio = c(0.05,0.95) )
+
+
+# Add TE family information
+upset_data = upset_data %>% 
+  rownames_to_column(var = "TE") %>% 
+  left_join(TE_class, by = "TE")
+Axes = colnames(upset_data)[2:(ncol(upset_data)-1)]
+
+ComplexUpset::upset(upset_data, Axes,height_ratio = 1,
+                    base_annotations = list(
+                      'Intersection size'=intersection_size(
+                        counts = TRUE,
+                        mapping = aes(fill = Order),
+                      ) + scale_fill_manual(values = c("Helitron" = "#1B9E77",
+                                                       "LINE" = "#D95F02",
+                                                       "LTR" = "#7570B3",
+                                                       "MITE" = "#E7298A",
+                                                       "noCat" = "#66A61E",
+                                                       "SINE" = "#E6AB02",
+                                                       "SSR" = "#A6761D",
+                                                       "TIR" = "#666666"))
+                    ), width_ratio = 0.1, sort_sets = FALSE)
+
+# arrange_venn()
+
+```
+
