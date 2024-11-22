@@ -1,8 +1,6 @@
 library(scatterplot3d) 
 library(FactoMineR)
 library(factoextra)
-# # install.packages("devtools")
-# devtools::install_github("zhangyuqing/sva-devel", force = TRUE)
 library(sva)
 library(gridExtra)
 library(cowplot)
@@ -50,25 +48,24 @@ TE_mapping_Msyl = fread("Aure_mappingTEdatabase_Msylvestris/results/Msylvestris_
   mutate(TE = str_remove_all(pattern = "[\"]", TE)) %>% 
   separate(TE, into = c("TE", "V1", "V2"), sep = " ") %>% 
   # mutate(TE = str_remove_all(string = TE, pattern = "\\|.*")) %>% 
-select(-c(V1, V2, attributes, source, type, score, phase)) %>% 
+  select(-c(V1, V2, attributes, source, type, score, phase)) %>% 
   select(Msyl_seqid = seqid, Msyl_start = start, Msyl_end = end, TE)
 
 
 ## contributions of TEs to PCA axes
 contributions = resPCA_TE$var$contrib %>% as.data.frame() %>% rownames_to_column(var = "TE") %>% 
   filter(TE != "*") %>% 
-  left_join(TE_class, by = "TE") %>% 
   # mutate(TE = str_remove_all(string = TE, pattern = "\\|.*")) %>%
   # mutate(TE = str_replace_all(string = TE, pattern = "rnd_5_family_1611_DNA_ReconFamilySize22,", replacement = "rnd_5_family_1611_DNA_ReconFamilySize22")) %>% 
   mutate(sum = Dim.1 + Dim.2 + Dim.3 + Dim.6 + Dim.8) %>% 
   gather(key = "Axe", value = "contribution", Dim.1:sum) %>% 
+  left_join(TE_class, by = "TE") %>% 
   mutate(TE_class = ifelse(Order == "LTR" | Order == "LINE" | Order == "SINE", "Class1", 
                            ifelse(Order == "Helitron" | Order == "Helitron|SINE" | Order == "TIR", "Class2", "noCat")))
 
 # Plot TEs constribution distribution by axes, considering TE families
 contributions %>%
   filter(Axe %in% c(paste0("Dim.", 1:3), "Dim.6", "Dim.8", "sum")) %>%
-  # filter(Axe %in% c(paste0("Dim.",4:5), "Dim.7")) %>% 
   filter(! is.na(Order)) %>% 
   filter(Order != "TRIM") %>% 
   filter(Order != "mixture") %>% 
@@ -83,16 +80,6 @@ contributions %>%
                                "SINE" = "#E6AB02",
                                "SSR" = "#A6761D",
                                "TIR" = "#666666"))+
-  # scale_color_manual(values = c("Helitron" = "#1B9E77",
-  #                               "Helitron|SINE" = "blue",
-  #                               "pararetrovirus" = "purple",
-  #                               "LINE" = "#D95F02",
-  #                               "LTR" = "#7570B3",
-  #                               "MITE" = "#E7298A",
-  #                               "noCat" = "#66A61E",
-  #                               "SINE" = "#E6AB02",
-  #                               "SSR" = "#A6761D",
-  #                               "TIR" = "#666666"))+
   geom_boxplot()+
   scale_y_log10(limits = c(0.0000001,0.01))+
   ylab("TEs contribution (%)")+
