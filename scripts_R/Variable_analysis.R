@@ -97,6 +97,15 @@ contributions %>%
     sd = sd(contribution),
     IQR = IQR(contribution)
   )
+# A tibble: 5 × 7
+# Axe     min     max     mean   median       sd      IQR
+# <chr> <dbl>   <dbl>    <dbl>    <dbl>    <dbl>    <dbl>
+#   1 Dim.1     0 0.00251 0.000632 0.000556 0.000492 0.000756
+# 2 Dim.2     0 0.00797 0.000632 0.000198 0.00109  0.000644
+# 3 Dim.3     0 0.00944 0.000632 0.000330 0.000805 0.000832
+# 4 Dim.6     0 0.0140  0.000632 0.000273 0.000930 0.000750
+# 5 Dim.8     0 0.0237  0.000632 0.000246 0.00104  0.000711
+
 
 # Selection best contributing variable on 5 axes and sum of 5 axes
 
@@ -114,16 +123,6 @@ top_contributions <- bind_rows(
       mutate(Source_Dim = dim_col)     # Ajouter une colonne pour indiquer la dimension source
   })
 )
-
-
-# top_contributions = rbind(
-#   # contributions %>% filter(Axe == "sum") %>% slice_max(contribution, n=N),
-#   contributions %>% filter(Axe == "Dim.1") %>% slice_max(contribution, n=N),
-#   contributions %>% filter(Axe == "Dim.2") %>% slice_max(contribution, n=N),
-#   contributions %>% filter(Axe == "Dim.3") %>% slice_max(contribution, n=N),
-#   contributions %>% filter(Axe == "Dim.6") %>% slice_max(contribution, n=N),
-#   contributions %>% filter(Axe == "Dim.8") %>% slice_max(contribution, n=N)
-# ) 
 
 save(top_contributions, file = "200_top_contributors.rda")
 
