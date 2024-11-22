@@ -1,0 +1,212 @@
+---
+title: "Untitled"
+output: html_document
+date: "2024-02-23"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r, packages}
+library(scatterplot3d) 
+library(FactoMineR)
+library(factoextra)
+# # install.packages("devtools")
+# devtools::install_github("zhangyuqing/sva-devel", force = TRUE)
+library(sva)
+library(gridExtra)
+library(cowplot)
+library(data.table)
+library(tidyverse)
+library(ggpubr)
+
+options(digits = 4) # controls the number of significant digits to print
+rm(list=ls())
+
+setwd("/home/aurelie/Dropbox/Post-Doc_ECLECTIC/2_Projet_TE_malus/")
+
+# Chargement des deux ACP
+load("Antho_mappingTEdatabase_PCA/results/resPCA_TE.rda")
+load("Antho_SNP_PCA/results/resPCA_SNP.rda")
+
+fviz_eig(resPCA_TE, addlabels = TRUE, choice = "variance", ncp = 30 )
+fviz_eig(resPCA_SNP, addlabels = TRUE, choice = "variance", ncp = 30 )
+
+```
+
+```{r, data}
+# Recover samples coordinates on each axes for TEs PCA and SNPs PCA 
+SNP_coord = (get_pca_ind(resPCA_SNP))$coord %>% as.data.frame()
+TE_coord = resPCA_TE$ind$coord %>% as.data.frame()
+
+table_name = fread("Antho_mappingTEdatabase_PCA/scripts/file_names.csv")
+# table_name = filter(table_name, specie != "OTH") %>% filter(specie != "baccata")
+# table_name = table_name[! table_name$name %in% c("Dom_09", "Dom_22", "Syl_01", "Syl_07"), ]
+table_name = filter(table_name, name %in% rownames(resPCA_TE$ind$coord))
+
+# res_R = tableau contenant les valeurs de R2
+res_R = as.data.frame(matrix(NA, 0,0))
+# res_p = tableau contenant les p-value
+res_p = as.data.frame(matrix(NA, 0,0))
+
+# Calculates correlations for the 13 first axes
+Nb_axes = 13
+for (i in 1:Nb_axes) {
+  
+  A = paste0("TE_PCA_PC",i)
+  
+  tmp_TE <- data.frame(ID = rownames(TE_coord), coord_TE = TE_coord[,i])
+
+  for (j in 1:Nb_axes) {
+
+    B = paste0("SNP_PCA_PC",j)
+
+    tmp_snp = data.frame(ID = rownames(SNP_coord), coord_SNP = SNP_coord[,j])
+    df = merge(tmp_TE, tmp_snp, by = "ID")
+    pearson = cor.test(df$coord_TE, df$coord_SNP, method = "pearson")
+    R_coeff_pearson = pearson$estimate %>% as.numeric()
+    spearman = cor.test(df$coord_TE, df$coord_SNP, method = "spearman")
+    R_coeff_spearman = spearman$estimate %>% as.numeric()
+    p_value_Pearson = pearson$p.value
+    p_value_Spearman = spearman$p.value
+    res_p[A,B] = p_value_Pearson
+    res_R[A,B] = R_coeff_pearson
+
+  }
+}
+
+# And fill the results tables
+df_R = res_R %>% rownames_to_column(var = "TE_PCA_axe") %>% 
+  gather(key = "SNP_PCA_axe", value = "correlation", SNP_PCA_PC1:SNP_PCA_PC13) %>% 
+  mutate(correlation = sprintf("%0.2f", correlation)) %>% 
+  mutate(correlation = as.numeric(correlation))
+
+df_p = res_p %>% rownames_to_column(var = "TE_PCA_axe") %>% 
+  gather(key = "SNP_PCA_axe", value = "pvalue", SNP_PCA_PC1:SNP_PCA_PC13) %>% 
+  mutate(pvalue = sprintf("%0.3f", pvalue)) %>% 
+  mutate(pvalue = as.numeric(pvalue))
+df = full_join(df_R, df_p, by = c("TE_PCA_axe", "SNP_PCA_axe"))
+
+#reorder factors
+df$TE_PCA_axe <- factor(df$TE_PCA_axe,levels=paste0("TE_PCA_PC", 13:1))
+df$SNP_PCA_axe <- factor(df$SNP_PCA_axe, levels = paste0("SNP_PCA_PC", 1:13))
+
+limitR <- max(abs(df$correlation)) * c(-1, 1)
+
+df %>% ggplot(aes(x = SNP_PCA_axe, 
+             y = TE_PCA_axe,
+             fill = pvalue,
+             ))+
+  geom_tile()+
+  geom_text(aes(label = ifelse(pvalue < 0.05, pvalue, "")),
+            fontface = "bold", size = 3)+
+  geom_text(aes(label = ifelse(pvalue > 0.05, pvalue, "")),
+            size = 2)+
+  scale_fill_gradient2(low = "red", mid = "orange", high = "white", midpoint = 0.05)+
+  labs(title = "pvalue")+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90))
+
+df %>% ggplot(aes(x = SNP_PCA_axe, 
+             y = TE_PCA_axe,
+             fill = correlation,
+             ))+
+  geom_tile()+
+  geom_text(aes(label = ifelse(correlation < -0.25, correlation, "")),
+            fontface = "bold", size = 3)+
+  geom_text(aes(label = ifelse(correlation > 0.25, correlation, "")),
+            fontface = "bold", size = 3)+
+  geom_text(aes(label = ifelse(correlation >= -0.25 & correlation <= 0.25, correlation, "")),
+            size = 2)+
+  scale_fill_distiller(palette = "Spectral", limit = limitR)+
+  labs(title = "Pearson correlation")+
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 90))
+
+
+df %>% 
+  ggplot(aes(x = correlation))+
+  geom_histogram(binwidth = 0.05)+
+  # geom_density()+
+  scale_x_continuous(labels = c(-0.75,-0.5,-0.25,0,0.25,0.5,0.75), breaks = c(-0.75,-0.5,-0.25,0,0.25,0.5,0.75))+
+  theme_minimal()
+  
+
+```
+
+
+```{r}
+# Reformat coodinates matrix to tibble 
+TE_coord_long = TE_coord %>% rownames_to_column(var = "sample") %>% gather(key = "TE_PCA_axe", value = "Coord_TE", Dim.1:Dim.30)
+SNP_coord_long = SNP_coord %>% rownames_to_column(var = "sample") %>% gather(key = "SNP_PCA_axe", value = "Coord_SNP", Dim.1:Dim.30)
+
+Samples_Coordinates = left_join(TE_coord_long, SNP_coord_long, by = "sample") %>% left_join(table_name, by = c("sample" = "name"))
+
+N_dim_snp = 5
+N_dim_TE = 9
+graphLabels = df %>% 
+  mutate(TE_PCA_axe = str_replace_all(TE_PCA_axe, "TE_PCA_PC", "Dim.")) %>% 
+  mutate(SNP_PCA_axe = str_replace_all(SNP_PCA_axe, "SNP_PCA_PC", "Dim.")) %>% 
+  filter(TE_PCA_axe %in% paste0("Dim.",10:13)) %>% 
+  filter(SNP_PCA_axe %in% paste0("Dim.",1:N_dim_snp))
+
+p = Samples_Coordinates %>% 
+  filter(TE_PCA_axe %in% paste0("Dim.",10:13)) %>% 
+  filter(SNP_PCA_axe %in% paste0("Dim.",1:N_dim_snp)) %>% 
+  ggplot()+
+  geom_point(aes(x = Coord_TE, y = Coord_SNP, color = specie))+
+  facet_wrap(TE_PCA_axe~SNP_PCA_axe, scales = "free", ncol = N_dim_snp)+
+  xlab("")+ylab("")+
+  theme_minimal_grid()+
+  theme(
+  strip.background = element_blank(),
+  strip.text.x = element_blank()
+)
+
+p = p + geom_text(data = graphLabels, 
+                  aes(label = correlation, x = -100, y = 30, hjust = -1, vjust = 0))
+p
+
+
+```
+
+```{r}
+# TE PCA PC
+i = 1
+# SNP PCA PC
+j = 3
+
+tmp_TE <- data.frame(ID = rownames(TE_coord), coord_TE = TE_coord[,i])
+tmp_snp = data.frame(ID = rownames(SNP_coord), coord_SNP = SNP_coord[,j])
+df = merge(tmp_TE, tmp_snp, by = "ID")
+pearson = cor.test(df$coord_TE, df$coord_SNP, method = "pearson")
+R_coeff = pearson$estimate %>% as.numeric() %>% format(digits = 2)
+p_value = pearson$p.value %>% as.numeric() %>% format(scientific = T, digits = 4)
+df = full_join(df, table_name, by = c("ID" = "name"))
+
+df %>%
+  # gather(key = "key", value = "coordinates", coord_TE:coord_SNP) %>%
+  ggplot(aes(x = coord_TE, y = coord_SNP))+
+  geom_point(aes(col = specie))+
+  xlab(paste0("TE_PC",i))+ylab(paste0("SNP_PC",j))+
+  geom_text(aes(x = -50, y = 25, label = paste0("R² = ",R_coeff, "\n (p = ",p_value, ")"), lineheight = 1, family = "sans"))+
+  theme_minimal()
+
+
+```
+
+Selecting TE of interest
+
+```{r}
+correlatedTE = resPCA_TE$var$cos2 %>% as.data.frame() %>% 
+  filter(Dim.1 >= 0.25 | Dim.2 >= 0.25 | Dim.3 >= 0.25 | Dim.6 >= 0.25 | Dim.8 >= 0.25)
+correlatedTE_names = row.names(correlatedTE)
+
+notcorrelatedTE = resPCA_TE$var$cos2 %>% as.data.frame() %>% 
+  filter(Dim.1 < 0.25 & Dim.2 < 0.25 & Dim.3 < 0.25 & Dim.6 < 0.25 & Dim.8 < 0.25)
+notcorrelatedTE_names = row.names(notcorrelatedTE)
+
+
+resPCA_TE$var$contrib
+
+
+```
