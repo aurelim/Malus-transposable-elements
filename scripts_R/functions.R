@@ -35,8 +35,8 @@ add_classification <- function(chromosome_data, classification_results) {
     # mutate(TE = str_remove_all(pattern = "Target [\"]Motif:", attributes)) %>% 
     # mutate(TE = str_remove_all(pattern = "[\"]", TE)) %>% 
     # separate(TE, into = c("TE", "V1", "V2"), sep = " ") %>% 
-    mutate(TE = str_remove_all(TE, "_NA")) %>% 
-    mutate(TE = str_remove_all(TE, "\\)$")) %>% 
+    # mutate(TE = str_remove_all(TE, "_NA")) %>% 
+    # mutate(TE = str_remove_all(TE, "\\)$")) %>% 
     # select(-c(V1, V2, attributes)) %>% 
     left_join(classification_results, by = "TE") %>% 
     select(c(genome, seqid, start, end, strand, TE, Order)) %>% 
@@ -173,6 +173,6 @@ plot_TE_distribution <- function(genome, data_percents, Haut_title) {
   
   p  
   
-  ggsave(plot = p, filename = paste0(path, "/", genome, "_circularPlot.png"), dpi = 600)
+  ggsave(plot = p, filename = paste0(genome, "_circularPlot.png"), dpi = 600)
   return(p)
 }
