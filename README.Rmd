@@ -1,2 +1,26 @@
-## REadme file  
+# TE database construction
 
+
+# Population structure
+-> prepData.R
+-> PCAonData.R
+
+
+
+# Correlation between population structure based on SNPs and on TEs 
+-> correlation.Rmd
+
+
+# TEs most involved in population structure
+What TEs are most involved in Malus population structure? 
+TE contribution to axes
+-> Variable_analysis.R 
+TE association with individuals
+-> Variable_analysis_by_pop.Rmd
+
+Where are they on Malus genomes?
+-> TE_mapping_on_assemblies.R
+
+Are they shared between populations ? genomes ? 
+-> Variable_analysis_by_pop.Rmd
+-> TE_mapping_on_assemblies.R
